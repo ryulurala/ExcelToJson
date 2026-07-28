@@ -13,8 +13,8 @@ public static class AutoExcelConverter
     const string JsonFolderRelativePath = "./Data";
     const string ToolsFolderRelativePath = "../Tools";
 
-    const string WindowsConverterName = "excel-converter-win.exe";
-    const string MacConverterName = "excel-converter-macos";
+    const string WindowsConverterName = "converter-win.exe";
+    const string MacConverterName = "converter-macos";
 
     const string ExcelSearchPattern = "*.xlsx";
     const string ExcelExtension = ".xlsx";
