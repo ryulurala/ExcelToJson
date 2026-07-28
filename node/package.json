@@ -1,0 +1,17 @@
+{
+  "name": "excel-to-json-converter",
+  "version": "1.0.0",
+  "description": "Excel to JSON Converter",
+  "main": "excelToJson.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "build": "pkg src/index.js --targets node18-win-x64,node18-macos-x64 -o build/excel-converter",
+    "sample": "node src/generateSample.js"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
