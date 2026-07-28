@@ -92,7 +92,7 @@ XLSX.utils.book_append_sheet(wb, wsLevel, "LevelData");
 XLSX.utils.book_append_sheet(wb, wsSpawn, "MonsterSpawn");
 
 // 파일 저장
-const fileName = "sample_rpg_data.xlsx";
+const fileName = "sample.xlsx";
 XLSX.writeFile(wb, fileName);
 
 console.log(`✅ 범용 RPG 게임 샘플 엑셀 파일이 생성되었습니다: ${fileName}`);

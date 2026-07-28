@@ -202,5 +202,7 @@ Backups.backupdb
 MobileBackups.trash
 tmbootpicker.efi
 
-# Build files
+# Ignore files
 build
+data
+sample.xlsx

@@ -5,7 +5,7 @@
   "main": "excelToJson.js",
   "scripts": {
     "start": "node src/index.js",
-    "build": "pkg src/index.js --targets node18-win-x64,node18-macos-x64 -o build/excel-converter",
+    "build": "pkg src/index.js --targets node18-win-x64,node18-macos-x64 -o build/converter",
     "sample": "node src/generateSample.js"
   },
   "dependencies": {

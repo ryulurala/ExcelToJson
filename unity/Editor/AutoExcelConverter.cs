@@ -10,7 +10,7 @@ using System.Linq;
 public static class AutoExcelConverter
 {
     const string ExcelFolderRelativePath = "../Excels";
-    const string JsonFolderRelativePath = "../Excels";
+    const string JsonFolderRelativePath = "./Data";
     const string ToolsFolderRelativePath = "../Tools";
 
     const string WindowsConverterName = "excel-converter-win.exe";
