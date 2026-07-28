@@ -1,0 +1,25 @@
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Excel to Json Converter</title>
+    <!-- 외부 CDN 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- CSS 스타일 링크 -->
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div id="dropzone">
+        <h1>📂 엑셀 파일 또는 폴더를 놓아주세요</h1>
+        <p>폴더째로 드래그 앤 드롭하시면 내부의 모든 엑셀을 변환합니다.</p>
+        <p>(1개: JSON 다운로드 / 2개 이상: 자동으로 ZIP 압축)</p>
+      </div>
+      <div id="log-area">대기 중...<br /></div>
+    </div>
+
+    <!-- ES 모듈 방식으로 메인 JS 로드 -->
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
