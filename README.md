@@ -2,13 +2,13 @@
 
 엑셀 데이터를 프로그래머가 원하는 형태의 JSON 구조(배열, 맵, 리스트 등)로 손쉽게 파싱할 수 있습니다. 
 
-Node.js 기반의 핵심 코어를 바탕으로, **웹 브라우저(Web)**와 **Unity 에디터 자동화 툴(Unity)** 환경을 지원합니다.
+Node.js 기반의 핵심 코어를 바탕으로, 웹 브라우저(Web)와 Unity 에디터 자동화 툴(Unity) 환경을 지원합니다.
 
 ---
 
 ## 🌐 Quick Links
 
-- **Web Converter 바로가기:** [https://ryulurala.github.io/ExcelToJson/web/](https://ryulurala.github.io/ExcelToJson/web/)
+- Web Converter 바로가기: [https://ryulurala.github.io/ExcelToJson/web/](https://ryulurala.github.io/ExcelToJson/web/)
 
 ---
 
@@ -18,9 +18,9 @@ Node.js 기반의 핵심 코어를 바탕으로, **웹 브라우저(Web)**와 **
 
 | 구분        | 모듈 이름      | 설명                                          | 상세 가이드 링크                        |
 | :---------- | :------------- | :-------------------------------------------- | :-------------------------------------- |
-| **Node.js** | CLI Core       | 변환기 핵심 엔진 (로컬 빌드 및 CLI 사용)      | [📄 node/README.md](./node/README.md)   |
-| **Web**     | Web Converter  | 브라우저 기반 드래그 앤 드롭 간편 변환기      | [📄 web/README.md](./web/README.md)     |
-| **Unity**   | Auto Converter | 유니티 파일 저장 감지 및 백그라운드 자동 갱신 | [📄 unity/README.md](./unity/README.md) |
+| `Node.js` | CLI Core       | 변환기 핵심 엔진 (로컬 빌드 및 CLI 사용)      | [📄 node/README.md](./node/README.md)   |
+| `Web`     | Web Converter  | 브라우저 기반 드래그 앤 드롭 간편 변환기      | [📄 web/README.md](./web/README.md)     |
+| `Unity`   | Auto Converter | 유니티 파일 저장 감지 및 백그라운드 자동 갱신 | [📄 unity/README.md](./unity/README.md) |
 
 ---
 
@@ -39,5 +39,5 @@ Node.js 기반의 핵심 코어를 바탕으로, **웹 브라우저(Web)**와 **
 
 ### 2. 컬럼 및 주석 규칙
 
-- **배열화 (`[]`):** 컬럼 헤더 이름 끝에 `[]`를 붙이면, 해당 열의 데이터를 쉼표(`,`) 기준으로 분리하여 배열(Array)로 변환합니다. (예: `Tags[]` -> `fire,heavy` -> `["fire", "heavy"]`)
-- **주석 처리 (`!`):** 시트 이름이나 컬럼 헤더 이름이 `!`로 시작하면 변환기에서 해당 시트/열을 무시합니다. (메모, 참고용으로 활용)
+- 배열화 (`[]`): 컬럼 헤더 이름 끝에 `[]`를 붙이면, 해당 열의 데이터를 쉼표(`,`) 기준으로 분리하여 배열(Array)로 변환합니다. (예: `Tags[]` -> `fire,heavy` -> `["fire", "heavy"]`)
+- 주석 처리 (`!`): 시트 이름이나 컬럼 헤더 이름이 `!`로 시작하면 변환기에서 해당 시트/열을 무시합니다. (메모, 참고용으로 활용)
