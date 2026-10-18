@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -26,9 +27,10 @@ public static class AutoExcelConverter
     // 타이밍 및 타임아웃 설정
     const double PROCESS_DELAY_SECONDS = 1.0;
     const double DIRECTORY_CHECK_INTERVAL = 2.0;
-    const int PROCESS_TIMEOUT_MS = 10000; // 변환기 무한 대기(에디터 멈춤) 방지용 10초 제한
+    const int PROCESS_TIMEOUT_MS = 10000;
 
-    // 캐싱된 절대 경로 (메인 스레드 초기화 시 1회 연산)
+    // 캐싱된 절대 경로
+    static readonly string _projectRootDirectory;
     static readonly string _excelDirectory;
     static readonly string _jsonDirectory;
     static readonly string _converterPath;
@@ -36,12 +38,14 @@ public static class AutoExcelConverter
     static FileSystemWatcher _watcher;
     static readonly ConcurrentDictionary<string, byte> _pendingFiles = new();
 
-    // 스레드 간 안전한 이벤트 감지를 위한 플래그 및 타이머
     static volatile bool _hasNewFileEvent;
     static double _scheduledProcessTime;
 
     static bool _isManuallyStopped;
     static double _lastDirectoryCheckTime;
+
+    // 마지막으로 실패한 파일 경로 기록 (터미널 직접 실행 디버깅용)
+    static string _lastFailedExcelPath;
 
     static AutoExcelConverter()
     {
@@ -50,13 +54,12 @@ public static class AutoExcelConverter
             ? MAC_CONVERTER_NAME
             : WINDOWS_CONVERTER_NAME;
 
+        _projectRootDirectory = Path.GetFullPath(Path.Combine(dataPath, ".."));
         _excelDirectory = Path.GetFullPath(Path.Combine(dataPath, EXCEL_FOLDER_RELATIVE_PATH));
         _jsonDirectory = Path.GetFullPath(Path.Combine(dataPath, JSON_FOLDER_RELATIVE_PATH));
         _converterPath = Path.GetFullPath(Path.Combine(dataPath, TOOLS_FOLDER_RELATIVE_PATH, converterFileName));
 
         EditorApplication.update += OnEditorUpdate;
-
-        // 스크립트 리컴파일 및 에디터 종료 시 백그라운드 Watcher 리소스 누수 방지
         AssemblyReloadEvents.beforeAssemblyReload += DisposeWatcher;
         EditorApplication.quitting += DisposeWatcher;
 
@@ -89,7 +92,7 @@ public static class AutoExcelConverter
         _watcher.Error += OnWatcherError;
         _watcher.EnableRaisingEvents = true;
 
-        Debug.Log($"[ExcelWatcher] 👀 엑셀 파일 감시 시작 (경로: {_excelDirectory})");
+        Debug.Log($"[ExcelWatcher] 👀 엑셀 파일 감시 시작\n- 감시 경로: {_excelDirectory}\n- 출력 경로: {_jsonDirectory}\n- 변환기 경로: {_converterPath}");
     }
 
     [MenuItem("Tools/Excel Watcher/Stop Watching")]
@@ -128,6 +131,37 @@ public static class AutoExcelConverter
 
         if (successCount > 0)
             AssetDatabase.Refresh();
+    }
+
+    [MenuItem("Tools/Excel Watcher/Debug Last Failed in Terminal")]
+    public static void DebugLastFailedInTerminal()
+    {
+        string targetExcel = _lastFailedExcelPath;
+
+        if (string.IsNullOrEmpty(targetExcel) || !File.Exists(targetExcel))
+        {
+            if (Directory.Exists(_excelDirectory))
+            {
+                string[] files = Directory.GetFiles(_excelDirectory, EXCEL_SEARCH_PATTERN, SearchOption.AllDirectories);
+                foreach (string f in files)
+                {
+                    if (IsValidExcelFile(f))
+                    {
+                        targetExcel = f;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (string.IsNullOrEmpty(targetExcel))
+        {
+            Debug.LogWarning("[ExcelWatcher] ⚠️ 테스트할 엑셀 파일을 찾을 수 없습니다.");
+
+            return;
+        }
+
+        OpenRealTerminalWithCommand(targetExcel);
     }
 
     static void DisposeWatcher()
@@ -176,7 +210,6 @@ public static class AutoExcelConverter
 
     static void OnEditorUpdate()
     {
-        // 1. 폴더 미생성 상태일 때 주기적으로 생성 여부 확인
         if (_watcher == null && !_isManuallyStopped)
         {
             if (EditorApplication.timeSinceStartup - _lastDirectoryCheckTime > DIRECTORY_CHECK_INTERVAL)
@@ -189,14 +222,12 @@ public static class AutoExcelConverter
             return;
         }
 
-        // 2. 새로운 파일 이벤트가 들어왔다면 타이머 연장 (디바운싱)
         if (_hasNewFileEvent)
         {
             _hasNewFileEvent = false;
             _scheduledProcessTime = EditorApplication.timeSinceStartup + PROCESS_DELAY_SECONDS;
         }
 
-        // 3. 예약된 시간이 도래했을 때 일괄 변환 처리
         if (_scheduledProcessTime > 0 && EditorApplication.timeSinceStartup >= _scheduledProcessTime)
         {
             _scheduledProcessTime = 0;
@@ -228,28 +259,30 @@ public static class AutoExcelConverter
     static bool RunConverter(string excelFilePath)
     {
         string fileName = Path.GetFileName(excelFilePath);
+        string arguments = $"\"{excelFilePath}\" \"{_jsonDirectory}\"";
+        string workingDir = Path.GetDirectoryName(_converterPath) ?? _projectRootDirectory;
+        string executionDetails = BuildExecutionDetails(workingDir, _converterPath, arguments);
 
-        // [원인 1] 변환기 실행 파일 자체가 없는 경우
         if (!File.Exists(_converterPath))
         {
-            Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (변환기 없음): '{_converterPath}' 경로에 실행 파일이 없습니다.");
+            _lastFailedExcelPath = excelFilePath;
+            Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (변환기 파일 없음): {fileName}\n{executionDetails}");
 
             return false;
         }
 
-        // [원인 2] 이벤트 발생 후 파일이 삭제되었거나 이동된 경우
         if (!File.Exists(excelFilePath))
         {
-            Debug.LogWarning($"[ExcelWatcher] ⚠️ 변환 건너뜀 (파일 없음): '{fileName}' 파일이 삭제되었거나 이동되었습니다.\n경로: {excelFilePath}");
+            Debug.LogWarning($"[ExcelWatcher] ⚠️ 변환 건너뜀 (대상 엑셀 파일 없음): {fileName}\n{executionDetails}");
 
             return false;
         }
 
-        // [원인 3] 파일 잠금(Lock) 상태 사전 점검
         FileLockStatus lockStatus = CheckFileLockStatus(excelFilePath);
         if (lockStatus == FileLockStatus.ExclusivelyLocked)
         {
-            Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (파일 독점 잠김): '{fileName}' 파일이 다른 프로세스에서 저장 중이거나 독점 사용 중입니다. 잠시 후 다시 저장해 주세요.");
+            _lastFailedExcelPath = excelFilePath;
+            Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (파일 독점 잠김): '{fileName}' 파일이 저장 중이거나 다른 프로그램에 의해 완전히 잠겨 있습니다.\n{executionDetails}");
 
             return false;
         }
@@ -262,8 +295,8 @@ public static class AutoExcelConverter
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = _converterPath,
-                Arguments = $"\"{excelFilePath}\" \"{_jsonDirectory}\"",
-                WorkingDirectory = Path.GetDirectoryName(_converterPath) ?? string.Empty,
+                Arguments = arguments,
+                WorkingDirectory = workingDir,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -272,113 +305,189 @@ public static class AutoExcelConverter
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            StringBuilder outputBuilder = new();
-            StringBuilder errorBuilder = new();
+            // 파이프 버퍼링으로 인해 에러 로그가 증발하는 현상 및 인코딩 크래시 방지
+            startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+            startInfo.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            startInfo.EnvironmentVariables["DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION"] = "false";
+
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             using Process process = new Process { StartInfo = startInfo };
-
-            // 비동기 스트림 수신 (버퍼 포화로 인한 에디터 데드락 방지)
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                    outputBuilder.AppendLine(e.Data);
-            };
-
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                    errorBuilder.AppendLine(e.Data);
-            };
-
             process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
 
-            // [원인 4] 변환 프로세스가 응답 없이 멈춘 경우 (타임아웃)
+            // 이벤트 유실 버그가 없는 비동기 Task 방식으로 전체 스트림 끝(EOF)까지 캡처
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+
             if (!process.WaitForExit(PROCESS_TIMEOUT_MS))
             {
                 process.Kill();
-                Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (시간 초과): '{fileName}' 변환이 {PROCESS_TIMEOUT_MS / 1000}초 내에 끝나지 않아 강제 종료했습니다.");
+                _lastFailedExcelPath = excelFilePath;
+                Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (시간 초과 - {PROCESS_TIMEOUT_MS / 1000}초): {fileName}\n{executionDetails}");
 
                 return false;
             }
 
-            // 비동기 이벤트 버퍼가 모두 플러시될 때까지 대기
-            process.WaitForExit();
+            Task.WaitAll(new Task[] { outputTask, errorTask }, 2000);
+            stopwatch.Stop();
 
-            string output = outputBuilder.ToString().Trim();
-            string error = errorBuilder.ToString().Trim();
+            string output = outputTask.IsCompleted ? outputTask.Result.Trim() : string.Empty;
+            string error = errorTask.IsCompleted ? errorTask.Result.Trim() : string.Empty;
 
             if (process.ExitCode == 0)
             {
-                string logMsg = string.IsNullOrEmpty(output)
-                    ? $"[ExcelWatcher] ✅ 변환 완료: {fileName}"
-                    : $"[ExcelWatcher] ✅ 변환 완료: {fileName}\n{output}";
+                StringBuilder successSb = new();
+                successSb.AppendLine($"[ExcelWatcher] ✅ 변환 성공: {fileName} (ExitCode: 0, 소요시간: {stopwatch.ElapsedMilliseconds}ms)");
+                successSb.AppendLine(executionDetails);
 
-                Debug.Log(logMsg);
+                if (!string.IsNullOrEmpty(output))
+                    successSb.AppendLine($"[StandardOutput]\n{output}");
+
+                if (!string.IsNullOrEmpty(error))
+                    successSb.AppendLine($"[StandardError (경고)]\n{error}");
+
+                Debug.Log(successSb.ToString().TrimEnd());
 
                 return true;
             }
 
-            // [원인 5] 변환기 실행 중 내부 에러 발생 (ExitCode != 0)
-            LogConverterFailure(fileName, process.ExitCode, startInfo.Arguments, lockStatus, output, error);
+            _lastFailedExcelPath = excelFilePath;
+            LogConverterFailure(fileName, process.ExitCode, stopwatch.ElapsedMilliseconds, executionDetails, lockStatus, output, error);
 
             return false;
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
-            // [원인 6] OS 실행 권한 부족 (특히 macOS에서 chmod +x 누락 시) 또는 아키텍처 불일치
+            _lastFailedExcelPath = excelFilePath;
             Debug.LogError(
-                $"[ExcelWatcher] ❌ 변환기 실행 거부 (OS/권한 오류): {fileName}\n" +
-                $"변환기 경로: {_converterPath}\n" +
-                $"상세 내용: {ex.Message} (Win32 ErrorCode: {ex.NativeErrorCode})\n" +
-                $"💡 팁: macOS 환경이라면 터미널에서 'chmod +x \"{_converterPath}\"' 명령어로 실행 권한을 부여했는지 확인하세요."
+                $"[ExcelWatcher] ❌ 변환 실패 (OS 실행 거부 - Win32 ErrorCode: {ex.NativeErrorCode}): {fileName}\n" +
+                $"사유: {ex.Message}\n" +
+                $"💡 팁: macOS라면 터미널에서 chmod +x \"{_converterPath}\" 를 실행하세요.\n" +
+                $"{executionDetails}"
             );
 
             return false;
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[ExcelWatcher] ❌ 예외 발생 ({ex.GetType().Name}): {fileName}\n{ex.Message}\n{ex.StackTrace}");
+            _lastFailedExcelPath = excelFilePath;
+            Debug.LogError($"[ExcelWatcher] ❌ 변환 실패 (예외 발생 - {ex.GetType().Name}): {fileName}\n{ex.Message}\n{executionDetails}\n{ex.StackTrace}");
 
             return false;
         }
     }
 
-    static void LogConverterFailure(string fileName, int exitCode, string arguments, FileLockStatus lockStatus, string output, string error)
+    static string BuildExecutionDetails(string workingDir, string exePath, string arguments)
     {
+        string terminalCommand = Application.platform == RuntimePlatform.OSXEditor
+            ? $"cd \"{workingDir}\" && \"{exePath}\" {arguments}"
+            : $"cd /d \"{workingDir}\" && \"{exePath}\" {arguments}";
+
         StringBuilder sb = new();
-        sb.AppendLine($"[ExcelWatcher] ❌ 변환 실패: {fileName} (ExitCode: {exitCode})");
+        sb.AppendLine("[실행 정보]");
+        sb.AppendLine($"  • 작업 폴더 (WorkingDir) : {workingDir}");
+        sb.AppendLine($"  • 실행 파일 (FileName)   : \"{exePath}\"");
+        sb.AppendLine($"  • 전달 인자 (Arguments)  : {arguments}");
+        sb.Append($"  • 터미널 복붙용 명령어    : {terminalCommand}");
 
+        return sb.ToString();
+    }
+
+    static void LogConverterFailure(
+        string fileName,
+        int exitCode,
+        long elapsedMs,
+        string executionDetails,
+        FileLockStatus lockStatus,
+        string output,
+        string error)
+    {
+        string hexExitCode = $"0x{exitCode:X8}";
+        StringBuilder sb = new();
+
+        sb.AppendLine($"[ExcelWatcher] ❌ 변환 실패: {fileName} (ExitCode: {exitCode} / {hexExitCode}, 소요시간: {elapsedMs}ms)");
+        sb.AppendLine(executionDetails);
+
+        // 1. OS 레벨 크래시 코드 분석
+        string crashReason = AnalyzeExitCode(exitCode);
+        if (!string.IsNullOrEmpty(crashReason))
+            sb.AppendLine($"🚨 [ExitCode 분석]: {crashReason}");
+
+        // 2. 엑셀 파일 열림 상태 분석
         if (lockStatus == FileLockStatus.SharedWriteLocked)
-        {
-            sb.AppendLine("⚠️ [유력 원인 - 엑셀 열림 감지]: 현재 이 파일이 엑셀(Excel) 프로그램에 열려 있습니다! 변환기가 열려 있는 파일 읽기를 지원하지 않는 경우 엑셀을 닫고 다시 시도해 보세요.");
-        }
+            sb.AppendLine("⚠️ [파일 잠금 감지]: 현재 이 파일이 엑셀(Excel)에 열려 있습니다. 변환기가 열려 있는 파일 읽기를 지원하지 않으면 PermissionError 등으로 즉시 종료됩니다.");
 
+        // 3. 표준 에러 및 표준 출력 표시
         if (!string.IsNullOrEmpty(error))
             sb.AppendLine($"[StandardError]\n{error}");
 
         if (!string.IsNullOrEmpty(output))
             sb.AppendLine($"[StandardOutput]\n{output}");
 
+        // 4. 여전히 출력이 비어있는 경우의 안내
         if (string.IsNullOrEmpty(error) && string.IsNullOrEmpty(output))
-            sb.AppendLine("💡 변환기가 별도의 에러 메시지를 출력하지 않고 종료되었습니다. 엑셀 시트 규격(컬럼명, 데이터 타입, 빈 행 등)을 확인하세요.");
+        {
+            sb.AppendLine("💡 [출력 스트림 비어있음]: 상단 메뉴 [Tools > Excel Watcher > Debug Last Failed in Terminal]을 클릭하면 실제 터미널 창이 열려 숨겨진 에러를 바로 확인할 수 있습니다.");
+        }
 
-        sb.AppendLine($"[실행 인자]: {arguments}");
+        Debug.LogError(sb.ToString().TrimEnd());
+    }
 
-        Debug.LogError(sb.ToString());
+    static string AnalyzeExitCode(int exitCode)
+    {
+        return unchecked((uint)exitCode) switch
+        {
+            0xC0000135 => "필수 DLL 누락 (0xC0000135: STATUS_DLL_NOT_FOUND). 변환기 실행에 필요한 런타임(.NET, VC++ 재배포 패키지 등)이나 주변 DLL 파일이 없습니다.",
+            0xC0000005 => "메모리 접근 위반 (0xC0000005: STATUS_ACCESS_VIOLATION). 변환기 내부에서 Null 포인터 참조나 메모리 크래시가 발생했습니다.",
+            0xE0434352 => ".NET 미처리 예외 (0xE0434352: CLR Exception). C# 기반 변환기 내부에서 try-catch로 잡히지 않은 예외가 발생했습니다.",
+            0xC000007B => "아키텍처 불일치 (0xC000007B: STATUS_INVALID_IMAGE_FORMAT). 32비트/64비트 DLL 충돌이 발생했습니다.",
+            126 => "실행 권한 거부 (ExitCode 126). macOS에서 실행 권한(chmod +x)이 없습니다.",
+            127 => "명령어/라이브러리 찾을 수 없음 (ExitCode 127).",
+            139 => "세그멘테이션 오류 (ExitCode 139: SIGSEGV).",
+            _ => null
+        };
+    }
+
+    static void OpenRealTerminalWithCommand(string excelFilePath)
+    {
+        string workingDir = Path.GetDirectoryName(_converterPath) ?? _projectRootDirectory;
+        string arguments = $"\"{excelFilePath}\" \"{_jsonDirectory}\"";
+
+        if (Application.platform == RuntimePlatform.OSXEditor)
+        {
+            // macOS: Terminal.app을 열어 명령어를 실행하고 창을 유지
+            string script = $"tell application \\\"Terminal\\\" to do script \\\"cd '{workingDir}' && '{_converterPath}' '{excelFilePath}' '{_jsonDirectory}'\\\"";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "osascript",
+                Arguments = $"-e \"tell application \\\"Terminal\\\" to activate\" -e \"{script}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        else
+        {
+            // Windows: cmd.exe 창을 실제로 띄워서 실행하고 창이 닫히지 않게(/k) 유지
+            string cmdArgs = $"/k \"cd /d \"{workingDir}\" && \"{_converterPath}\" {arguments} & echo. & echo [종료 코드: %ERRORLEVEL%]\"";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = cmdArgs,
+                UseShellExecute = true,
+                CreateNoWindow = false
+            });
+        }
     }
 
     enum FileLockStatus
     {
-        Unlocked,           // 아무도 점유하지 않음
-        SharedWriteLocked,  // 엑셀 등에서 열려 있으나 공유 읽기는 가능한 상태
-        ExclusivelyLocked   // 저장 중이거나 완전히 잠겨 접근 불가능한 상태
+        Unlocked,
+        SharedWriteLocked,
+        ExclusivelyLocked
     }
 
     static FileLockStatus CheckFileLockStatus(string filePath)
     {
-        // 1. 일반 읽기 전용(FileShare.Read)으로 열어보기
         try
         {
             using FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -387,10 +496,8 @@ public static class AutoExcelConverter
         }
         catch (IOException)
         {
-            // 실패했다면 다른 프로세스(엑셀 등)가 쓰기 모드로 열어둔 상태
         }
 
-        // 2. 공유 읽기/쓰기(FileShare.ReadWrite)로 열어보기
         try
         {
             using FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
