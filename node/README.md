@@ -28,10 +28,11 @@ npm run sample
 
 독립적으로 사용할 수 있는 실행 파일을 생성합니다.
 
-Windows용 .exe와 macOS용 바이너리가 모두 만들어집니다.
+macOS x64 / Apple Silicon arm64용 바이너리와 Windows x64용 `.exe`가 생성됩니다.
 
 - 빌드된 결과물은 build/ 폴더 내부에 생성됩니다.
 - 서로 다른 CPU 아키텍처에서도 빌드할 수 있도록 바이트코드 생성을 비활성화합니다. 따라서 실행 파일 안에 JavaScript 소스 코드가 포함됩니다. 소스 비공개가 중요하다면 Rosetta 2가 설치된 환경에서 바이트코드 생성을 사용해 빌드하세요.
+- Apple Silicon Mac에서는 `converter-mac-arm64`를 실행하면 Rosetta 2가 필요하지 않습니다. Intel Mac에서는 `converter-mac-x64`를 사용하세요.
 
 ```bash
 npm run build
@@ -41,6 +42,7 @@ npm run build
 
 ```bash
 # 기본 사용법: [실행파일] [엑셀 원본 경로] [JSON 출력 폴더 경로]
-build/converter-win.exe "./sample.xlsx" "./data"      # windows
-build/converter-macos "./sample.xlsx" "./data"      # mac
+build/converter-win-x64.exe "./sample.xlsx" "./data"  # Windows x64
+build/converter-mac-arm64 "./sample.xlsx" "./data"    # Apple Silicon Mac
+build/converter-mac-x64 "./sample.xlsx" "./data"      # Intel Mac
 ```
