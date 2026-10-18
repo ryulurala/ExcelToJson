@@ -31,6 +31,7 @@ npm run sample
 Windows용 .exe와 macOS용 바이너리가 모두 만들어집니다.
 
 - 빌드된 결과물은 build/ 폴더 내부에 생성됩니다.
+- 서로 다른 CPU 아키텍처에서도 빌드할 수 있도록 바이트코드 생성을 비활성화합니다. 따라서 실행 파일 안에 JavaScript 소스 코드가 포함됩니다. 소스 비공개가 중요하다면 Rosetta 2가 설치된 환경에서 바이트코드 생성을 사용해 빌드하세요.
 
 ```bash
 npm run build
