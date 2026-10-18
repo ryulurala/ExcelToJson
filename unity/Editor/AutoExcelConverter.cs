@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEditor;
@@ -16,8 +17,9 @@ public static class AutoExcelConverter
     const string JSON_FOLDER_RELATIVE_PATH = "./Data";
     const string TOOLS_FOLDER_RELATIVE_PATH = "../Tools";
 
-    const string WINDOWS_CONVERTER_NAME = "converter-win.exe";
-    const string MAC_CONVERTER_NAME = "converter-macos";
+    const string WINDOWS_CONVERTER_NAME = "converter-win-x64.exe";
+    const string MAC_ARM64_CONVERTER_NAME = "converter-mac-arm64";
+    const string MAC_X64_CONVERTER_NAME = "converter-mac-x64";
 
     const string EXCEL_SEARCH_PATTERN = "*.xlsx";
     const string EXCEL_EXTENSION = ".xlsx";
@@ -50,9 +52,7 @@ public static class AutoExcelConverter
     static AutoExcelConverter()
     {
         string dataPath = Application.dataPath;
-        string converterFileName = Application.platform == RuntimePlatform.OSXEditor
-            ? MAC_CONVERTER_NAME
-            : WINDOWS_CONVERTER_NAME;
+        string converterFileName = GetConverterFileName();
 
         _projectRootDirectory = Path.GetFullPath(Path.Combine(dataPath, ".."));
         _excelDirectory = Path.GetFullPath(Path.Combine(dataPath, EXCEL_FOLDER_RELATIVE_PATH));
@@ -64,6 +64,25 @@ public static class AutoExcelConverter
         EditorApplication.quitting += DisposeWatcher;
 
         StartWatching();
+    }
+
+    static string GetConverterFileName()
+    {
+        if (Application.platform == RuntimePlatform.OSXEditor)
+        {
+            return RuntimeInformation.OSArchitecture switch
+            {
+                Architecture.Arm64 => MAC_ARM64_CONVERTER_NAME,
+                Architecture.X64 => MAC_X64_CONVERTER_NAME,
+                _ => throw new PlatformNotSupportedException(
+                    $"지원하지 않는 macOS 아키텍처입니다: {RuntimeInformation.OSArchitecture}")
+            };
+        }
+
+        if (Application.platform == RuntimePlatform.WindowsEditor)
+            return WINDOWS_CONVERTER_NAME;
+
+        throw new PlatformNotSupportedException($"지원하지 않는 Unity Editor 플랫폼입니다: {Application.platform}");
     }
 
     [MenuItem("Tools/Excel Watcher/Start Watching")]
